@@ -1,0 +1,177 @@
+---
+title: | 
+  \vspace{-0.5cm}
+  \begin{center}
+  \includegraphics[width=4.0cm]{logo.png} \\[0.6em]
+  {\LARGE DS311} \\[0.01em]
+  {\LARGE Exploratory Data Analysis} \\[0.01em]
+  \end{center}
+subtitle: |
+  \vspace{-0.5em}
+  \begin{center}
+  \color{gray}\rule{0.4\linewidth}{0.01pt}\\[0.1em]
+  \color{black}Laboratory Activity 3-4\\[0.1em]
+  \color{gray}\rule{0.4\linewidth}{0.01pt}\\[-1em]
+  \end{center}
+author: "Van Robert T. Edio"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+output:
+  pdf_document:
+    latex_engine: xelatex
+  html_notebook: default
+header-includes:
+    - \usepackage{graphicx}
+    - \usepackage{titling}
+    - \usepackage{fvextra}
+    - \usepackage{setspace}
+---
+
+
+
+
+
+
+## Setup
+
+```{r setup, message=FALSE, warning=FALSE}
+# Load required libraries. Install them first if you don't have them:
+# install.packages(c('tidyverse','corrplot','factoextra','psych'))
+library(tidyverse)    # dplyr, ggplot2, tibble, etc.
+library(corrplot)     # correlation plot
+library(factoextra)   # PCA visualization helpers
+library(psych)        # factor analysis helpers
+
+# Make plots larger in RMarkdown
+options(repr.plot.width=7, repr.plot.height=4)
+```
+
+
+## 1) Data understanding — load dataset and inspect
+
+```{r load-data}
+math <- read.table('student-mat.csv', header = TRUE, sep = ';')
+
+
+# checking
+dim(math)        
+str(math)       
+summary(math)    
+
+# Identify numeric vs categorical variables
+is_num <- sapply(math, is.numeric)
+numeric_vars <- names(is_num[is_num])
+cat_vars <- names(is_num[!is_num])
+
+is_num  
+numeric_vars
+cat_vars
+```
+
+
+
+## 2) Exploring relationships — correlation matrix
+
+```{r correlation}
+# Pick at least five numeric variables for correlation analysis
+vars_for_corr <- c('G1','G2','G3','studytime','absences','failures','Medu','Fedu')
+numdata <- math %>% select(all_of(vars_for_corr)) %>% mutate_if(is.factor, as.numeric)
+
+# Compute Pearson correlation matrix (pairwise complete obs)
+corr_mat <- cor(numdata, use = 'pairwise.complete.obs', method = 'pearson')
+#print(round(corr_mat, 3))
+
+# Visualize correlation matrix
+corrplot::corrplot(corr_mat, method = 'color', type = 'upper', tl.col = 'black', tl.srt = 45)
+```
+
+**Interpretation: **
+The grades (G1–G3) are tightly linked, showing they measure the same underlying performance.
+
+Failures is the strongest negative predictor of grade.
+
+Studytime and absences don’t have as much direct impact as expected.
+
+Parental education (Medu, Fedu) is modestly related to performance and each other.
+
+## 3) Visualizing multivariate patterns — scatter G1 vs G3
+
+```{r scatter-g1-g3}
+math %>%
+  ggplot(aes(x = G1, y = G3)) +
+  geom_jitter(height = 0.2, width = 0.2, alpha = 0.6, size = 1.8) +
+  geom_smooth(method = 'lm', se = TRUE, linetype = 'dashed') +
+  labs(title = 'G1 (first period) vs G3 (final grade)',
+       x = 'G1 (first period grade)',
+       y = 'G3 (final grade)') +
+  theme_minimal()
+```
+
+**observations: **
+
+Early performance (G1) is a very good predictor of final performance (G3).
+
+Outliers suggest that not all students follow the same trajectory — other factors (study habits, failures, absences, motivation) may explain those deviations.
+
+
+## 4) Principal Component Analysis (PCA)
+
+```{r pca}
+pca_vars <- c('G1','G2','G3','failures','absences','Medu','Fedu')
+X <- math %>% select(all_of(pca_vars)) %>% mutate_if(is.factor, as.numeric)
+
+# Run PCA with scaling
+pca_res <- prcomp(X, scale. = TRUE, center = TRUE)
+
+# Eigenvalues and how many > 1
+eigenvalues <- pca_res$sdev^2
+eigenvalues
+sum(eigenvalues > 1)
+
+# Proportion of variance explained
+summary(pca_res)
+
+# PCA loadings (rotation)
+round(pca_res$rotation, 3)
+
+```
+
+
+```{r pca_plot}
+# Scree plot / variance explained plot
+factoextra::fviz_eig(pca_res, addlabels = TRUE, ylim = c(0, 80))
+
+```
+
+**Interpretation:**
+- The first three principal components summarize the dataset well (~80% variance).
+
+- PC1 reflects grades, the strongest signal in the data.
+
+- PC2 reflects parental education.
+
+- PC3 reflects failures/absences.
+
+- These components provide simpler, uncorrelated “dimensions” of student performance, background, and risk.
+
+## 5) Exploratory Factor Analysis (2 factors)
+
+```{r factor-analysis}
+# scale numeric variables
+X_scaled <- scale(X)
+
+# Use factanal to extract 2 factors, rotation = 'varimax'.
+fa_res <- factanal(X_scaled, factors = 2, rotation = 'varimax', scores = 'none')
+print(fa_res, digits = 3)
+
+# For cleaner presentation 
+loadings <- fa_res$loadings
+print(loadings, cutoff = 0.3)
+
+```
+
+**Interpretation:**
+- In the 2-factor solution, Factor 1 loads strongly on G1, G2, and G3, representing academic performance. Factor 2 loads strongly on Medu and Fedu, representing family background (parental education). This solution is conceptually meaningful: grades cluster as one factor and parental education as another. Compared to PCA, the results are similar for the first two components (performance and background), but PCA identified an additional dimension related to failures/absences, which did not load well in the factor analysis.
+
+
+
+
